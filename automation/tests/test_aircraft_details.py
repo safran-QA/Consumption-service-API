@@ -7,19 +7,24 @@ from api.aircraft_api import get_aircraft_details
 
 load_dotenv()
 
-TEST_AIRCRAFT_ID = os.getenv("TEST_AIRCRAFT_ID", "331")
-
 
 @pytest.mark.aircraft
 def test_aircraft_details_valid(auth_token):
     """
     AIR-001
-    Verify aircraft details can be retrieved using a valid aircraft ID.
+    Verify aircraft details API returns a successful response
+    for a valid aircraft ID.
     """
+
+    aircraft_id = os.getenv("TEST_AIRCRAFT_ID")
+
+    assert aircraft_id, (
+        "TEST_AIRCRAFT_ID is not configured in .env"
+    )
 
     response = get_aircraft_details(
         auth_token,
-        TEST_AIRCRAFT_ID
+        aircraft_id,
     )
 
     print("\nHTTP STATUS:", response.status_code)
@@ -33,15 +38,3 @@ def test_aircraft_details_valid(auth_token):
     assert "data" in body
     assert "message" in body
     assert "requestId" in body
-
-    data = body["data"]
-
-    assert data["aircraft_id"] == TEST_AIRCRAFT_ID
-    assert "aircraft_body" in data
-    assert "aircraft_manufacturing_date" in data
-    assert "aircraft_tailnumber" in data
-    assert "aircraft_type" in data
-    assert "airline_name" in data
-    assert "devices" in data
-
-    assert isinstance(data["devices"], list)

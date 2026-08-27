@@ -16,13 +16,9 @@ def get_aircraft_details(token, aircraft_id):
         "Accept": "application/json",
     }
 
-    payload = {
-        "aircraft_id": aircraft_id
-    }
-
     return requests.post(
         url,
         headers=headers,
-        json=payload,
+        json={"aircraft_id": aircraft_id},
         timeout=30,
     )
