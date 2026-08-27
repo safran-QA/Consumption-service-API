@@ -4,6 +4,8 @@ import pytest
 import requests
 from dotenv import load_dotenv
 
+from utils.test_data import save_data, DATA_FILE
+
 load_dotenv()
 
 BASE_URL = os.getenv("BASE_URL")
@@ -12,9 +14,9 @@ TEST_USER_EMAIL = os.getenv("TEST_USER_EMAIL")
 TEST_USER_PASSWORD = os.getenv("TEST_USER_PASSWORD")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def auth_token():
-    """Authenticate once and return the JWT access token."""
+    """Authenticate once and store runtime authentication data."""
 
     response = requests.post(
         f"{AUTH_URL}/users/login",
@@ -32,18 +34,23 @@ def auth_token():
 
     body = response.json()
 
+    assert body["status"] == "success"
+
     token = body["data"]["AccessToken"]
 
-    assert token, "AccessToken was empty"
+    save_data("access_token", token)
+    save_data("token_type", body["data"]["TokenType"])
+
+    print("\nRuntime authentication data created.")
+    print("Token stored in:", DATA_FILE)
 
     return token
 
 
-@pytest.fixture
-def auth_headers(auth_token):
-    """Authorization headers for protected Consumption APIs."""
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_data():
+    yield
 
-    return {
-        "Authorization": f"Bearer {auth_token}",
-        "Content-Type": "application/json",
-    }
+    if DATA_FILE.exists():
+        DATA_FILE.unlink()
+        print("\nRuntime test data deleted.")
