@@ -2,6 +2,7 @@
   "use strict";
 
   const modeBadgeEl = document.getElementById("mode-badge");
+  const runCounterEl = document.getElementById("run-counter");
   const moduleListEl = document.getElementById("module-list");
   const selectAllEl = document.getElementById("select-all");
   const runBtn = document.getElementById("run-btn");
@@ -148,8 +149,36 @@
     }
   }
 
+  // --- Cumulative "tests run" counter (persisted per browser) --------------
+  const RUN_COUNTER_KEY = "poleen.testsRun";
+
+  function loadRunCounter() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(RUN_COUNTER_KEY) || "");
+      if (raw && typeof raw.tests === "number" && typeof raw.runs === "number") return raw;
+    } catch {}
+    return { tests: 0, runs: 0 };
+  }
+
+  function renderRunCounter(counter) {
+    runCounterEl.innerHTML =
+      `<strong>${counter.tests.toLocaleString()}</strong> tests run` +
+      ` · <strong>${counter.runs.toLocaleString()}</strong> run${counter.runs === 1 ? "" : "s"}`;
+  }
+
+  function bumpRunCounter(testsThisRun) {
+    const counter = loadRunCounter();
+    counter.tests += testsThisRun;
+    counter.runs += 1;
+    try {
+      localStorage.setItem(RUN_COUNTER_KEY, JSON.stringify(counter));
+    } catch {}
+    renderRunCounter(counter);
+  }
+
   function renderReport(report) {
     lastReport = report;
+    bumpRunCounter(report.totals.total);
 
     summaryCardsEl.innerHTML = `
       ${statCard(report.totals.total, "Total", "")}
@@ -268,4 +297,10 @@
 
   renderModuleList();
   updateSelectionSummary();
+  renderRunCounter(loadRunCounter());
+
+  // Reflect backend availability in the badge on load, before any run.
+  fetch("/api/health")
+    .then((res) => setRunnerMode(res.ok ? "live" : "mock"))
+    .catch(() => setRunnerMode("mock"));
 })();
