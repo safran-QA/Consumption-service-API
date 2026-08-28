@@ -21,7 +21,17 @@
   const exportJsonBtn = document.getElementById("export-json-btn");
   const exportCsvBtn = document.getElementById("export-csv-btn");
 
+  const feedbackForm = document.getElementById("feedback-form");
+  const feedbackRatingEl = document.getElementById("rating");
+  const feedbackNameEl = document.getElementById("feedback-name");
+  const feedbackCommentEl = document.getElementById("feedback-comment");
+  const feedbackSubmitBtn = document.getElementById("feedback-submit");
+  const feedbackStatusEl = document.getElementById("feedback-status");
+  const feedbackHistoryEl = document.getElementById("feedback-history");
+  const feedbackListEl = document.getElementById("feedback-list");
+
   let lastReport = null;
+  let runnerMode = "mock";
   let moduleProgressState = {}; // moduleId -> { total, done }
   let overallState = { total: 0, done: 0 };
 
@@ -119,6 +129,7 @@
   }
 
   function setRunnerMode(mode) {
+    runnerMode = mode;
     if (mode === "live") {
       modeBadgeEl.textContent = "Live pytest runner";
       modeBadgeEl.title = "Results come from a real pytest run via automation/server.py";
@@ -175,6 +186,159 @@
     } catch {}
     renderRunCounter(counter);
   }
+
+  // --- Feedback on the test-run experience --------------------------------
+  const FEEDBACK_KEY = "poleen.feedback";
+  const FEEDBACK_ENDPOINT = "/api/feedback";
+  let feedbackRating = 0;
+
+  const starButtons = [...feedbackRatingEl.querySelectorAll(".rating__star")];
+
+  function paintStars(value) {
+    for (const btn of starButtons) {
+      const starValue = Number(btn.dataset.value);
+      btn.classList.toggle("is-active", starValue <= value);
+      btn.setAttribute("aria-checked", String(starValue === feedbackRating));
+    }
+  }
+
+  for (const btn of starButtons) {
+    const value = Number(btn.dataset.value);
+    btn.addEventListener("click", () => {
+      feedbackRating = feedbackRating === value ? 0 : value;
+      paintStars(feedbackRating);
+    });
+    btn.addEventListener("mouseenter", () => paintStars(value));
+  }
+  feedbackRatingEl.addEventListener("mouseleave", () => paintStars(feedbackRating));
+
+  function loadLocalFeedback() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(FEEDBACK_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveLocalFeedback(list) {
+    try {
+      localStorage.setItem(FEEDBACK_KEY, JSON.stringify(list.slice(-50)));
+    } catch {}
+  }
+
+  async function fetchRemoteFeedback() {
+    try {
+      const res = await fetch(FEEDBACK_ENDPOINT);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.feedback) ? data.feedback : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function feedbackContextText(ctx) {
+    if (!ctx) return "No run recorded with this feedback";
+    return (
+      `Run: ${ctx.total} tests · ${ctx.passed} passed · ${ctx.failed} failed · ` +
+      `${ctx.skipped} skipped · ${(ctx.durationMs / 1000).toFixed(1)}s · ` +
+      `${escapeHtml(ctx.runnerMode || "unknown")} runner`
+    );
+  }
+
+  async function renderFeedbackHistory() {
+    const list = ((await fetchRemoteFeedback()) || loadLocalFeedback()).slice().reverse();
+    if (list.length === 0) {
+      feedbackHistoryEl.hidden = true;
+      feedbackListEl.innerHTML = "";
+      return;
+    }
+    feedbackHistoryEl.hidden = false;
+    feedbackListEl.innerHTML = list
+      .map((fb) => {
+        const rating = Number(fb.rating) || 0;
+        const stars = rating ? "★".repeat(rating) + "☆".repeat(5 - rating) : "—";
+        const who = escapeHtml(fb.name || "Anonymous");
+        const when = escapeHtml(new Date(fb.submittedAt).toLocaleString());
+        return `
+          <li class="feedback-list__item">
+            <div class="feedback-list__head">
+              <span><span class="feedback-list__stars">${stars}</span> <span class="feedback-list__who">${who}</span></span>
+              <span class="feedback-list__time">${when}</span>
+            </div>
+            ${fb.comment ? `<div class="feedback-list__comment">${escapeHtml(fb.comment)}</div>` : ""}
+            <div class="feedback-list__context">${feedbackContextText(fb.runContext)}</div>
+          </li>
+        `;
+      })
+      .join("");
+  }
+
+  function setFeedbackStatus(message, kind) {
+    feedbackStatusEl.textContent = message;
+    feedbackStatusEl.classList.toggle("is-error", kind === "error");
+    feedbackStatusEl.classList.toggle("is-success", kind === "success");
+  }
+
+  async function submitFeedback(event) {
+    event.preventDefault();
+    const comment = feedbackCommentEl.value.trim();
+    if (!feedbackRating && !comment) {
+      setFeedbackStatus("Add a rating or a comment first.", "error");
+      return;
+    }
+
+    const entry = {
+      rating: feedbackRating,
+      name: feedbackNameEl.value.trim(),
+      comment,
+      submittedAt: new Date().toISOString(),
+      runContext: lastReport
+        ? {
+            total: lastReport.totals.total,
+            passed: lastReport.totals.passed,
+            failed: lastReport.totals.failed,
+            skipped: lastReport.totals.skipped,
+            durationMs: lastReport.durationMs,
+            runnerMode,
+          }
+        : null,
+    };
+
+    feedbackSubmitBtn.disabled = true;
+    setFeedbackStatus("Saving…", null);
+
+    let savedRemotely = false;
+    try {
+      const res = await fetch(FEEDBACK_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+      });
+      savedRemotely = res.ok;
+    } catch {
+      savedRemotely = false;
+    }
+
+    const local = loadLocalFeedback();
+    local.push({ ...entry, savedRemotely });
+    saveLocalFeedback(local);
+
+    feedbackForm.reset();
+    feedbackRating = 0;
+    paintStars(0);
+    feedbackSubmitBtn.disabled = false;
+    setFeedbackStatus(
+      savedRemotely
+        ? "Thanks! Your feedback was recorded."
+        : "Thanks! Saved in this browser (backend unavailable).",
+      "success"
+    );
+    renderFeedbackHistory();
+  }
+
+  feedbackForm.addEventListener("submit", submitFeedback);
 
   function renderReport(report) {
     lastReport = report;
@@ -298,6 +462,8 @@
   renderModuleList();
   updateSelectionSummary();
   renderRunCounter(loadRunCounter());
+  paintStars(0);
+  renderFeedbackHistory();
 
   // Reflect backend availability in the badge on load, before any run.
   fetch("/api/health")
