@@ -21,6 +21,7 @@ test run happen alongside the browser's progress view.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -59,7 +60,7 @@ def run_module(module_id, expected_test_ids):
     try:
         proc = subprocess.Popen(
             [
-                sys.executable, "-m", "pytest",
+                sys.executable, "-u", "-m", "pytest",
                 "tests",
                 "-m", module_id,
                 f"--junitxml={junit_path}",
@@ -70,10 +71,11 @@ def run_module(module_id, expected_test_ids):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
 
         deadline = time.monotonic() + TEST_TIMEOUT_SECONDS
-        for line in proc.stdout:
+        for line in iter(proc.stdout.readline, ""):
             print(line, end="", flush=True)
             tail_lines.append(line)
             if len(tail_lines) > 200:
@@ -175,6 +177,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(data)
 
@@ -222,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5050
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"Dashboard + live pytest backend running at http://localhost:{port}/")
+    print(f"Dashboard + live pytest backend running at http://localhost:{port}/", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
